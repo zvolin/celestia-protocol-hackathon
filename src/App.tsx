@@ -110,7 +110,8 @@ function App() {
       console.log('--- Starting board reconstruction from Celestia ---');
       // 1. Get latest header
       const headHeader = await node.requestHeadHeader();
-      const latestHeight = Number(headHeader.height);
+      const latestHeight = Number(headHeader.height());
+      console.log(`Latest height: ${latestHeight}`);
       const latestTime = new Date(headHeader.header.time).getTime();
 
       // 2. Estimate block time (fallback to 6s if not available)
@@ -128,32 +129,43 @@ function App() {
       const startHeight = Math.max(1, latestHeight - blocksInWindow);
       console.log(`Reconstructing from height ${startHeight} to ${latestHeight}`);
 
-      // 4. Fetch blobs for each block in range
+      // 4. Fetch blobs for each block in range (concurrently)
       const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
       let allBlobs: any[] = [];
+      const fetchPromises = [];
       for (let h = startHeight; h <= latestHeight; h++) {
-        try {
-          console.log(`Requesting header for height: ${h}`);
-          const header = await node.requestHeaderByHeight(BigInt(h));
-          console.log(`Requesting all blobs for height: ${h}, namespace:`, ns);
-          const blobs = await node.requestAllBlobs(header, ns, 10); // 10s timeout
-          console.log(`Found ${blobs.length} blobs at height ${h}`);
-          for (const blob of blobs) {
-            try {
-              const data = new TextDecoder().decode(blob.data);
-              const placement = JSON.parse(data);
-              console.log(`Retrieved placement from node at height ${h}, time ${header.header.time}:`, placement);
-              allBlobs.push({ placement, height: h, time: header.header.time });
-            } catch (e) {
-              // Ignore parse errors
-              console.warn(`Failed to parse blob at height ${h}`);
+        fetchPromises.push((async () => {
+          try {
+            console.log(`Requesting header for height: ${h}`);
+            const header = await node.requestHeaderByHeight(BigInt(h));
+            console.log(`Requesting all blobs for height: ${h}, namespace:`, ns);
+            const blobs = await node.requestAllBlobs(header, ns, 10); // 10s timeout
+            console.log(`Found ${blobs.length} blobs at height ${h}`);
+            for (const blob of blobs) {
+              try {
+                const data = new TextDecoder().decode(blob.data);
+                const placement = JSON.parse(data);
+                console.log(`Retrieved placement from node at height ${h}, time ${header.header.time}:`, placement);
+                allBlobs.push({ placement, height: h, time: header.header.time });
+                // Place emoji as soon as found
+                setReconstructedPlacements(prev => {
+                  const safePrev = prev ?? [];
+                  // Remove any previous placement at the same coordinate (keep latest by time)
+                  const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
+                  return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
+                });
+              } catch (e) {
+                // Ignore parse errors
+                console.warn(`Failed to parse blob at height ${h}`);
+              }
             }
+          } catch (e) {
+            // Ignore missing blocks
+            console.warn(`Failed to fetch header or blobs at height ${h}`);
           }
-        } catch (e) {
-          // Ignore missing blocks
-          console.warn(`Failed to fetch header or blobs at height ${h}`);
-        }
+        })());
       }
+      await Promise.all(fetchPromises);
 
       // 5. Aggregate placements: latest per coordinate wins
       const coordMap = new Map<string, { x: number, y: number, emoji: string, timestamp: number }>();
@@ -216,7 +228,14 @@ function Launcher() {
       {node ?
         <button
           onClick={async () => {
-            let config = NodeConfig.default(Network.Mainnet);
+            let config = NodeConfig.default(Network.Mocha);
+            config.bootnodes = [
+              "/dnsaddr/mocha-boot.pops.one/p2p/12D3KooWDzNyDSvTBdKQAmnsUdAyQCQWwM3ReXTmPaaf6LzfNwRs",
+              "/dnsaddr/celestia-mocha.qubelabs.io/p2p/12D3KooWQVmHy7JpfxpKZfLjvn12GjvMgKrWdsHkFbV2kKqQFBCG",
+              "/dnsaddr/celestia-mocha4-bootstrapper.binary.builders/p2p/12D3KooWK6AYaPSe2EP99NP5G2DKwWLfMi6zHMYdD65KRJwdJSVU",
+              "/dnsaddr/celestia-testnet-boot.01node.com/p2p/12D3KooWR923Tc8SCzweyaGZ5VU2ahyS9VWrQ8mDz56RbHjHFdzW",
+              "/dnsaddr/celestia-mocha-boot.zkv.xyz/p2p/12D3KooWFdkhm7Ac6nqNkdNiW2g16KmLyyQrqXMQeijdkwrHqQ9J",
+            ];
             await node.start(config)
           }}
         >
