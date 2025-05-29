@@ -36,6 +36,8 @@ function App() {
   const [selectedEmoji, setSelectedEmoji] = useState(EMOJI_LIST[0]);
   const [placements, setPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
   const [lastBlob, setLastBlob] = useState<any>(null);
+  const [allBlobs, setAllBlobs] = useState<any[]>([]);
+  const [reconstructedPlacements, setReconstructedPlacements] = useState<{ x: number, y: number, emoji: string }[] | null>(null);
 
   // Handler for placing an emoji
   function handlePlaceEmoji(x: number, y: number) {
@@ -48,12 +50,53 @@ function App() {
     const data = new TextEncoder().encode(dataStr);
     const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
     const blob = new Blob(ns, data, AppVersion.latest());
-    setLastBlob({
+    const blobObj = {
       ns,
       data: Array.from(data),
       version: AppVersion.latest(),
       placement
-    });
+    };
+    setLastBlob(blobObj);
+    setAllBlobs(prev => [...prev, blobObj]);
+  }
+
+  // Download all blobs as blobs.json
+  function downloadBlobs() {
+    const json = JSON.stringify(allBlobs, null, 2);
+    const blob = new window.Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'blobs.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Handle blobs.json upload and reconstruct board state
+  function handleBlobsFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const blobs = JSON.parse(text);
+        // Extract placements from blobs, use only the latest placement per coordinate
+        const coordMap = new Map<string, { x: number, y: number, emoji: string, timestamp: number }>();
+        blobs.forEach((blob: any) => {
+          const placement = blob.placement;
+          if (!placement) return;
+          const key = `${placement.x},${placement.y}`;
+          if (!coordMap.has(key) || coordMap.get(key)!.timestamp < placement.timestamp) {
+            coordMap.set(key, placement);
+          }
+        });
+        setReconstructedPlacements(Array.from(coordMap.values()));
+      } catch (err) {
+        alert('Failed to parse blobs.json');
+      }
+    };
+    reader.readAsText(file);
   }
 
   return (
@@ -61,13 +104,22 @@ function App() {
       <main>
         <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
         <div className="selected-emoji-display">{selectedEmoji}</div>
-        <Grid20x20 placements={placements} onPlace={handlePlaceEmoji} />
+        <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+          <label htmlFor="blobs-upload" className="upload-blobs-label">Load blobs.json to reconstruct board: </label>
+          <input id="blobs-upload" type="file" accept="application/json" onChange={handleBlobsFileUpload} />
+        </div>
+        <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} />
         <Launcher />
         <Stats />
         {lastBlob && (
           <div className="blob-display">
             <h3>Last Created Blob Data</h3>
             <pre>{JSON.stringify(lastBlob, null, 2)}</pre>
+          </div>
+        )}
+        {allBlobs.length > 0 && (
+          <div style={{ textAlign: 'center', margin: '2rem 0' }}>
+            <button onClick={downloadBlobs} className="download-blobs-btn">Download blobs.json</button>
           </div>
         )}
       </main>
