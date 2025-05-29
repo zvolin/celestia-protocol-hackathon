@@ -12,7 +12,7 @@ function App() {
   return (
     <LuminaContextProvider>
       <main>
-        <EmojiDropdown emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
+        <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
         <div className="selected-emoji-display">{selectedEmoji}</div>
         <Grid20x20 />
         <Launcher />
@@ -97,21 +97,44 @@ function Grid20x20() {
   );
 }
 
-// Emoji Dropdown Component
-function EmojiDropdown({ emojis, selected, onSelect }: { emojis: string[], selected: string, onSelect: (e: string) => void }) {
+// Emoji Picker Component with Pagination
+function EmojiPicker({ emojis, selected, onSelect }: { emojis: string[], selected: string, onSelect: (e: string) => void }) {
+  const [currentPage, setCurrentPage] = useState(0);
+  const emojisPerPage = 20;
+  const totalPages = Math.ceil(emojis.length / emojisPerPage);
+  
+  const startIndex = currentPage * emojisPerPage;
+  const endIndex = startIndex + emojisPerPage;
+  const currentEmojis = emojis.slice(startIndex, endIndex);
+
   return (
-    <div className="emoji-dropdown">
-      <label htmlFor="emoji-select">Choose an emoji: </label>
-      <select
-        id="emoji-select"
-        value={selected}
-        onChange={e => onSelect(e.target.value)}
-        className="emoji-dropdown-select"
-      >
-        {emojis.map((emoji) => (
-          <option key={emoji} value={emoji}>{emoji}</option>
+    <div className="emoji-picker">
+      <div className="emoji-grid">
+        {currentEmojis.map((emoji) => (
+          <button
+            key={emoji}
+            className={`emoji-picker-btn ${selected === emoji ? 'selected' : ''}`}
+            onClick={() => onSelect(emoji)}
+          >
+            {emoji}
+          </button>
         ))}
-      </select>
+      </div>
+      <div className="emoji-pagination">
+        <button 
+          onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+          disabled={currentPage === 0}
+        >
+          Previous
+        </button>
+        <span>Page {currentPage + 1} of {totalPages}</span>
+        <button 
+          onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+          disabled={currentPage === totalPages - 1}
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }
