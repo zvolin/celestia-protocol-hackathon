@@ -19,8 +19,8 @@ Emoji Board is a decentralized collaborative board built on Celestia. Users can 
 - [ ] Define the data structure for a placement (e.g., `{x, y, emoji, timestamp, sender}`) and serialization format (e.g., JSON or binary).
 
 ### 2. Frontend
-- [ ] 20x20 grid display.
-- [ ] Emoji picker UI.
+- [x] 20x20 grid display.
+- [x] Emoji picker UI.
 - [ ] Click-to-place emoji on grid.
 - [ ] Wallet integration for signing and sending PayForBlob transactions.
 - [ ] Board state reconstruction logic (fetch and parse blobs from Celestia for the namespace, last 7 days).
