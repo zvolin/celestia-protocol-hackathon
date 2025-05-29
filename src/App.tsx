@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react'
+import { useState, useContext, useEffect } from 'react'
 import { AppVersion, Blob, Namespace, Network, NodeConfig } from 'lumina-node'
 import { LeapClientContext } from './LeapClient.tsx'
 import { LuminaContext } from './Lumina.tsx'
@@ -22,6 +22,34 @@ function App() {
   const [allBlobs, setAllBlobs] = useState<any[]>([]);
   const [reconstructedPlacements, setReconstructedPlacements] = useState<{ x: number, y: number, emoji: string }[] | null>(null);
   const [loadingReconstruct, setLoadingReconstruct] = useState(false);
+  const [nodeStarted, setNodeStarted] = useState(false);
+
+  // Automatically start the node on mount
+  useEffect(() => {
+    if (!node) return;
+    let config = NodeConfig.default(Network.Mocha);
+    config.bootnodes = [
+      "/dnsaddr/mocha-boot.pops.one/p2p/12D3KooWDzNyDSvTBdKQAmnsUdAyQCQWwM3ReXTmPaaf6LzfNwRs",
+      "/dnsaddr/celestia-mocha.qubelabs.io/p2p/12D3KooWQVmHy7JpfxpKZfLjvn12GjvMgKrWdsHkFbV2kKqQFBCG",
+      "/dnsaddr/celestia-mocha4-bootstrapper.binary.builders/p2p/12D3KooWK6AYaPSe2EP99NP5G2DKwWLfMi6zHMYdD65KRJwdJSVU",
+      "/dnsaddr/celestia-testnet-boot.01node.com/p2p/12D3KooWR923Tc8SCzweyaGZ5VU2ahyS9VWrQ8mDz56RbHjHFdzW",
+      "/dnsaddr/celestia-mocha-boot.zkv.xyz/p2p/12D3KooWFdkhm7Ac6nqNkdNiW2g16KmLyyQrqXMQeijdkwrHqQ9J",
+    ];
+    node.start(config).then(() => {
+      setNodeStarted(true);
+      console.log('Node started');
+    });
+  }, [node]);
+
+  // Automatically reconstruct the board after node is started
+  useEffect(() => {
+    if (nodeStarted) {
+      setTimeout(() => {
+        reconstructBoardFromCelestia();
+      }, 1000); // 1 second delay
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeStarted]);
 
   // Handler for placing an emoji
   async function handlePlaceEmoji(x: number, y: number) {
@@ -60,45 +88,6 @@ function App() {
 
   }
 
-  // Download all blobs as blobs.json
-  function downloadBlobs() {
-    const json = JSON.stringify(allBlobs, null, 2);
-    const blob = new window.Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'blobs.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // Handle blobs.json upload and reconstruct board state
-  function handleBlobsFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const blobs = JSON.parse(text);
-        // Extract placements from blobs, use only the latest placement per coordinate
-        const coordMap = new Map<string, { x: number, y: number, emoji: string, timestamp: number }>();
-        blobs.forEach((blob: any) => {
-          const placement = blob.placement;
-          if (!placement) return;
-          const key = `${placement.x},${placement.y}`;
-          if (!coordMap.has(key) || coordMap.get(key)!.timestamp < placement.timestamp) {
-            coordMap.set(key, placement);
-          }
-        });
-        setReconstructedPlacements(Array.from(coordMap.values()));
-      } catch (err) {
-        alert('Failed to parse blobs.json');
-      }
-    };
-    reader.readAsText(file);
-  }
-
   // Fetch and reconstruct board state from Celestia for the last 10 minutes
   async function reconstructBoardFromCelestia() {
     if (!node) {
@@ -123,8 +112,8 @@ function App() {
       }
       console.log(`Estimated average block time: ${avgBlockTimeMs} ms`);
 
-      // 3. Compute height 10 minutes ago
-      const msInWindow = 10 * 60 * 1000; // 10 minutes
+      // 3. Compute height 1 minute ago
+      const msInWindow = 60 * 1000; // 1 minute
       const blocksInWindow = Math.ceil(msInWindow / avgBlockTimeMs);
       const startHeight = Math.max(1, latestHeight - blocksInWindow);
       console.log(`Reconstructing from height ${startHeight} to ${latestHeight}`);
@@ -133,7 +122,7 @@ function App() {
       const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
       let allBlobs: any[] = [];
       const fetchPromises = [];
-      for (let h = startHeight; h <= latestHeight; h++) {
+      for (let h = latestHeight; h >= startHeight; h--) {
         fetchPromises.push((async () => {
           try {
             console.log(`Requesting header for height: ${h}`);
@@ -192,26 +181,12 @@ function App() {
     <main>
       <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
       <div className="selected-emoji-display">{selectedEmoji}</div>
-      <div style={{ textAlign: 'center', margin: '1rem 0' }}>
-        <label htmlFor="blobs-upload" className="upload-blobs-label">Load blobs.json to reconstruct board: </label>
-        <input id="blobs-upload" type="file" accept="application/json" onChange={handleBlobsFileUpload} />
-      </div>
-      <div style={{ textAlign: 'center', margin: '1rem 0' }}>
-        <button onClick={reconstructBoardFromCelestia} disabled={loadingReconstruct || !node} className="download-blobs-btn">
-          {loadingReconstruct ? 'Reconstructing...' : 'Reconstruct Board from Celestia (last 10 minutes)'}
-        </button>
-      </div>
       <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} />
       <Launcher />
       {lastBlob && (
         <div className="blob-display">
           <h3>Last Created Blob Data</h3>
           <pre>{JSON.stringify(lastBlob, null, 2)}</pre>
-        </div>
-      )}
-      {allBlobs.length > 0 && (
-        <div style={{ textAlign: 'center', margin: '2rem 0' }}>
-          <button onClick={downloadBlobs} className="download-blobs-btn">Download blobs.json</button>
         </div>
       )}
     </main>
