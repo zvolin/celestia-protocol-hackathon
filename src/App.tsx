@@ -3,10 +3,15 @@ import { LuminaContext, LuminaContextProvider } from './Lumina.tsx'
 import { Network, NodeConfig, PeerTrackerInfoSnapshot, SyncingInfoSnapshot } from 'lumina-node'
 import './App.css'
 
+const EMOJIS = ['😀', '🔥', '🌈', '🚀', '❤️'];
+
 function App() {
+  const [selectedEmoji, setSelectedEmoji] = useState(EMOJIS[0]);
   return (
     <LuminaContextProvider>
       <main>
+        <EmojiPicker emojis={EMOJIS} selected={selectedEmoji} onSelect={setSelectedEmoji} />
+        <Grid20x20 />
         <Launcher />
         <Stats />
       </main>
@@ -24,16 +29,7 @@ function Launcher() {
       {node ?
         <button
           onClick={async () => {
-            let config = NodeConfig.default(Network.Mocha);
-            config.bootnodes = [
-              "/dnsaddr/da-bootstrapper-1-mocha-4.celestia-mocha.com/p2p/12D3KooWCBAbQbJSpCpCGKzqz3rAN4ixYbc63K68zJg9aisuAajg",
-              "/dnsaddr/da-bootstrapper-2-mocha-4.celestia-mocha.com/p2p/12D3KooWCUHPLqQXZzpTx1x3TAsdn3vYmTNDhzg66yG8hqoxGGN8",
-              "/dnsaddr/mocha-boot.pops.one/p2p/12D3KooWDzNyDSvTBdKQAmnsUdAyQCQWwM3ReXTmPaaf6LzfNwRs",
-              "/dnsaddr/celestia-mocha.qubelabs.io/p2p/12D3KooWQVmHy7JpfxpKZfLjvn12GjvMgKrWdsHkFbV2kKqQFBCG",
-              "/dnsaddr/celestia-mocha4-bootstrapper.binary.builders/p2p/12D3KooWK6AYaPSe2EP99NP5G2DKwWLfMi6zHMYdD65KRJwdJSVU",
-              "/dnsaddr/celestia-testnet-boot.01node.com/p2p/12D3KooWR923Tc8SCzweyaGZ5VU2ahyS9VWrQ8mDz56RbHjHFdzW",
-              "/dnsaddr/celestia-mocha-boot.zkv.xyz/p2p/12D3KooWFdkhm7Ac6nqNkdNiW2g16KmLyyQrqXMQeijdkwrHqQ9J",
-            ];
+            let config = NodeConfig.default(Network.Mainnet);
             await node.start(config)
           }}
         >
@@ -82,6 +78,35 @@ function Stats() {
         peers: {peerTrackerInfo.num_connected_peers.toString()} (
         {peerTrackerInfo.num_connected_trusted_peers.toString()} trusted)
       </div>
+    </div>
+  );
+}
+
+// 20x20 Grid Component
+function Grid20x20() {
+  const size = 20;
+  return (
+    <div className="emoji-board-grid">
+      {Array.from({ length: size * size }).map((_, idx) => (
+        <div key={idx} className="emoji-board-cell"></div>
+      ))}
+    </div>
+  );
+}
+
+// Emoji Picker Component
+function EmojiPicker({ emojis, selected, onSelect }: { emojis: string[], selected: string, onSelect: (e: string) => void }) {
+  return (
+    <div className="emoji-picker">
+      {emojis.map((emoji) => (
+        <button
+          key={emoji}
+          className={`emoji-picker-btn${selected === emoji ? ' selected' : ''}`}
+          onClick={() => onSelect(emoji)}
+        >
+          {emoji}
+        </button>
+      ))}
     </div>
   );
 }
