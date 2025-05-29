@@ -13,6 +13,7 @@ const NAMESPACE = [97, 98, 99, 100, 101, 102, 103, 104]; // 8 bytes, example
 
 function App() {
   const txClient = useContext(LeapClientContext);
+  const node = useContext(LuminaContext);
   console.log(txClient);
 
   const [selectedEmoji, setSelectedEmoji] = useState(EMOJI_LIST[0]);
@@ -20,12 +21,12 @@ function App() {
   const [lastBlob, setLastBlob] = useState<any>(null);
   const [allBlobs, setAllBlobs] = useState<any[]>([]);
   const [reconstructedPlacements, setReconstructedPlacements] = useState<{ x: number, y: number, emoji: string }[] | null>(null);
+  const [loadingReconstruct, setLoadingReconstruct] = useState(false);
 
   // Handler for placing an emoji
-  function handlePlaceEmoji(x: number, y: number) {
+  async function handlePlaceEmoji(x: number, y: number) {
     const timestamp = Date.now();
     const placement = { x, y, emoji: selectedEmoji, timestamp };
-    setPlacements([...placements, placement]);
 
     // Serialize placement as JSON and encode as Uint8Array
     const dataStr = JSON.stringify(placement);
@@ -39,8 +40,24 @@ function App() {
       version: AppVersion.latest(),
       placement
     };
-    setLastBlob(blobObj);
-    setAllBlobs(prev => [...prev, blobObj]);
+
+    // Submit blob using txClient
+    if (txClient) {
+      try {
+        const txInfo = await txClient.submitBlobs([blob]);
+        console.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", txInfo);
+        // Only update frontend if transaction is successful
+        console.log(`Placing emoji at (${x}, ${y}):`, selectedEmoji);
+        setPlacements(prev => [...prev, placement]);
+        setLastBlob(blobObj);
+        setAllBlobs(prev => [...prev, blobObj]);
+      } catch (err) {
+        console.error("Failed to submit blob:", err);
+      }
+    } else {
+      console.warn("txClient is not initialized");
+    }
+
   }
 
   // Download all blobs as blobs.json
@@ -82,6 +99,83 @@ function App() {
     reader.readAsText(file);
   }
 
+  // Fetch and reconstruct board state from Celestia for the last 10 minutes
+  async function reconstructBoardFromCelestia() {
+    if (!node) {
+      alert('Node not initialized');
+      return;
+    }
+    setLoadingReconstruct(true);
+    try {
+      console.log('--- Starting board reconstruction from Celestia ---');
+      // 1. Get latest header
+      const headHeader = await node.requestHeadHeader();
+      const latestHeight = Number(headHeader.height);
+      const latestTime = new Date(headHeader.header.time).getTime();
+
+      // 2. Estimate block time (fallback to 6s if not available)
+      let avgBlockTimeMs = 6000;
+      if (latestHeight > 2) {
+        const prevHeader = await node.requestHeaderByHeight(BigInt(latestHeight - 1));
+        const prevTime = new Date(prevHeader.header.time).getTime();
+        avgBlockTimeMs = Math.abs(latestTime - prevTime) || 6000;
+      }
+      console.log(`Estimated average block time: ${avgBlockTimeMs} ms`);
+
+      // 3. Compute height 10 minutes ago
+      const msInWindow = 10 * 60 * 1000; // 10 minutes
+      const blocksInWindow = Math.ceil(msInWindow / avgBlockTimeMs);
+      const startHeight = Math.max(1, latestHeight - blocksInWindow);
+      console.log(`Reconstructing from height ${startHeight} to ${latestHeight}`);
+
+      // 4. Fetch blobs for each block in range
+      const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
+      let allBlobs: any[] = [];
+      for (let h = startHeight; h <= latestHeight; h++) {
+        try {
+          console.log(`Requesting header for height: ${h}`);
+          const header = await node.requestHeaderByHeight(BigInt(h));
+          console.log(`Requesting all blobs for height: ${h}, namespace:`, ns);
+          const blobs = await node.requestAllBlobs(header, ns, 10); // 10s timeout
+          console.log(`Found ${blobs.length} blobs at height ${h}`);
+          for (const blob of blobs) {
+            try {
+              const data = new TextDecoder().decode(blob.data);
+              const placement = JSON.parse(data);
+              console.log(`Retrieved placement from node at height ${h}, time ${header.header.time}:`, placement);
+              allBlobs.push({ placement, height: h, time: header.header.time });
+            } catch (e) {
+              // Ignore parse errors
+              console.warn(`Failed to parse blob at height ${h}`);
+            }
+          }
+        } catch (e) {
+          // Ignore missing blocks
+          console.warn(`Failed to fetch header or blobs at height ${h}`);
+        }
+      }
+
+      // 5. Aggregate placements: latest per coordinate wins
+      const coordMap = new Map<string, { x: number, y: number, emoji: string, timestamp: number }>();
+      allBlobs.forEach((blob: any) => {
+        const placement = blob.placement;
+        if (!placement) return;
+        const key = `${placement.x},${placement.y}`;
+        if (!coordMap.has(key) || coordMap.get(key)!.timestamp < placement.timestamp) {
+          coordMap.set(key, placement);
+        }
+      });
+      console.log(`Aggregated placements for ${coordMap.size} unique coordinates.`);
+      setReconstructedPlacements(Array.from(coordMap.values()));
+      alert('Board reconstructed from Celestia!');
+      console.log('--- Finished board reconstruction from Celestia ---');
+    } catch (err) {
+      alert('Failed to reconstruct board from Celestia: ' + err);
+    } finally {
+      setLoadingReconstruct(false);
+    }
+  }
+
   return (
     <main>
       <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
@@ -89,6 +183,11 @@ function App() {
       <div style={{ textAlign: 'center', margin: '1rem 0' }}>
         <label htmlFor="blobs-upload" className="upload-blobs-label">Load blobs.json to reconstruct board: </label>
         <input id="blobs-upload" type="file" accept="application/json" onChange={handleBlobsFileUpload} />
+      </div>
+      <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+        <button onClick={reconstructBoardFromCelestia} disabled={loadingReconstruct || !node} className="download-blobs-btn">
+          {loadingReconstruct ? 'Reconstructing...' : 'Reconstruct Board from Celestia (last 10 minutes)'}
+        </button>
       </div>
       <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} />
       <Launcher />
