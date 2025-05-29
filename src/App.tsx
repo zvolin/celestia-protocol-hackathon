@@ -23,6 +23,8 @@ function App() {
   const [reconstructedPlacements, setReconstructedPlacements] = useState<{ x: number, y: number, emoji: string }[] | null>(null);
   const [loadingReconstruct, setLoadingReconstruct] = useState(false);
   const [nodeStarted, setNodeStarted] = useState(false);
+  const [lastPlacedInfo, setLastPlacedInfo] = useState<{ x: number, y: number, emoji: string } | null>(null);
+  const [pendingPlacements, setPendingPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
 
   // Automatically start the node on mount
   useEffect(() => {
@@ -56,6 +58,9 @@ function App() {
     const timestamp = Date.now();
     const placement = { x, y, emoji: selectedEmoji, timestamp };
 
+    // Optimistically add a lighter emoji
+    setPendingPlacements(prev => [...prev, { x, y, emoji: selectedEmoji }]);
+
     // Serialize placement as JSON and encode as Uint8Array
     const dataStr = JSON.stringify(placement);
     const data = new TextEncoder().encode(dataStr);
@@ -78,14 +83,39 @@ function App() {
         console.log(`Placing emoji at (${x}, ${y}):`, selectedEmoji);
         setPlacements(prev => [...prev, placement]);
         setLastBlob(blobObj);
+        setLastPlacedInfo({ x, y, emoji: selectedEmoji });
         setAllBlobs(prev => [...prev, blobObj]);
+        // Also update reconstructedPlacements if it is not null
+        setReconstructedPlacements(prev => {
+          if (prev === null) return prev;
+          const filtered = prev.filter(p => !(p.x === x && p.y === y));
+          return [...filtered, { x, y, emoji: selectedEmoji }];
+        });
+        // Remove pending placement
+        setPendingPlacements(prev => prev.filter(p => !(p.x === x && p.y === y)));
       } catch (err) {
         console.error("Failed to submit blob:", err);
+        // Remove pending placement on failure
+        setPendingPlacements(prev => prev.filter(p => !(p.x === x && p.y === y)));
       }
     } else {
       console.warn("txClient is not initialized");
+      // Remove pending placement if txClient is not initialized
+      setPendingPlacements(prev => prev.filter(p => !(p.x === x && p.y === y)));
     }
+  }
 
+  // Utility to get and set blobs cache in localStorage
+  function getBlobsCache() {
+    try {
+      const cache = localStorage.getItem('celestiaBlobsCache');
+      return cache ? JSON.parse(cache) : {};
+    } catch {
+      return {};
+    }
+  }
+  function setBlobsCache(cache: any) {
+    localStorage.setItem('celestiaBlobsCache', JSON.stringify(cache));
   }
 
   // Fetch and reconstruct board state from Celestia for the last 10 minutes
@@ -122,7 +152,26 @@ function App() {
       const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
       let allBlobs: any[] = [];
       const fetchPromises = [];
+      const blobsCache = getBlobsCache();
       for (let h = latestHeight; h >= startHeight; h--) {
+        if (blobsCache[h]) {
+          // Use cached blobs for this height
+          console.log(`Using cached blobs for height ${h}`);
+          for (const cached of blobsCache[h]) {
+            try {
+              const placement = JSON.parse(cached.data);
+              setReconstructedPlacements(prev => {
+                const safePrev = prev ?? [];
+                const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
+                return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
+              });
+              allBlobs.push({ placement, height: h, time: cached.time });
+            } catch (e) {
+              console.warn(`Failed to parse cached blob at height ${h}`);
+            }
+          }
+          continue;
+        }
         fetchPromises.push((async () => {
           try {
             console.log(`Requesting header for height: ${h}`);
@@ -130,19 +179,19 @@ function App() {
             console.log(`Requesting all blobs for height: ${h}, namespace:`, ns);
             const blobs = await node.requestAllBlobs(header, ns, 10); // 10s timeout
             console.log(`Found ${blobs.length} blobs at height ${h}`);
+            blobsCache[h] = [];
             for (const blob of blobs) {
               try {
                 const data = new TextDecoder().decode(blob.data);
                 const placement = JSON.parse(data);
                 console.log(`Retrieved placement from node at height ${h}, time ${header.header.time}:`, placement);
-                allBlobs.push({ placement, height: h, time: header.header.time });
-                // Place emoji as soon as found
                 setReconstructedPlacements(prev => {
                   const safePrev = prev ?? [];
-                  // Remove any previous placement at the same coordinate (keep latest by time)
                   const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
                   return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
                 });
+                allBlobs.push({ placement, height: h, time: header.header.time });
+                blobsCache[h].push({ data, time: header.header.time });
               } catch (e) {
                 // Ignore parse errors
                 console.warn(`Failed to parse blob at height ${h}`);
@@ -155,6 +204,7 @@ function App() {
         })());
       }
       await Promise.all(fetchPromises);
+      setBlobsCache(blobsCache);
 
       // 5. Aggregate placements: latest per coordinate wins
       const coordMap = new Map<string, { x: number, y: number, emoji: string, timestamp: number }>();
@@ -168,7 +218,7 @@ function App() {
       });
       console.log(`Aggregated placements for ${coordMap.size} unique coordinates.`);
       setReconstructedPlacements(Array.from(coordMap.values()));
-      alert('Board reconstructed from Celestia!');
+      console.log('Board reconstructed from Celestia!');
       console.log('--- Finished board reconstruction from Celestia ---');
     } catch (err) {
       alert('Failed to reconstruct board from Celestia: ' + err);
@@ -181,12 +231,10 @@ function App() {
     <main>
       <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
       <div className="selected-emoji-display">{selectedEmoji}</div>
-      <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} />
-      <Launcher />
-      {lastBlob && (
-        <div className="blob-display">
-          <h3>Last Created Blob Data</h3>
-          <pre>{JSON.stringify(lastBlob, null, 2)}</pre>
+      <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} pendingPlacements={pendingPlacements} />
+      {lastPlacedInfo && (
+        <div style={{ textAlign: 'center', margin: '2rem 0', fontSize: '1.2rem' }}>
+          <strong>Last placed:</strong> {lastPlacedInfo.emoji} at ({lastPlacedInfo.x}, {lastPlacedInfo.y})
         </div>
       )}
     </main>
@@ -195,36 +243,8 @@ function App() {
 
 export default App
 
-function Launcher() {
-  const node = useContext(LuminaContext);
-
-  return (
-    <>
-      {node ?
-        <button
-          onClick={async () => {
-            let config = NodeConfig.default(Network.Mocha);
-            config.bootnodes = [
-              "/dnsaddr/mocha-boot.pops.one/p2p/12D3KooWDzNyDSvTBdKQAmnsUdAyQCQWwM3ReXTmPaaf6LzfNwRs",
-              "/dnsaddr/celestia-mocha.qubelabs.io/p2p/12D3KooWQVmHy7JpfxpKZfLjvn12GjvMgKrWdsHkFbV2kKqQFBCG",
-              "/dnsaddr/celestia-mocha4-bootstrapper.binary.builders/p2p/12D3KooWK6AYaPSe2EP99NP5G2DKwWLfMi6zHMYdD65KRJwdJSVU",
-              "/dnsaddr/celestia-testnet-boot.01node.com/p2p/12D3KooWR923Tc8SCzweyaGZ5VU2ahyS9VWrQ8mDz56RbHjHFdzW",
-              "/dnsaddr/celestia-mocha-boot.zkv.xyz/p2p/12D3KooWFdkhm7Ac6nqNkdNiW2g16KmLyyQrqXMQeijdkwrHqQ9J",
-            ];
-            await node.start(config)
-          }}
-        >
-          Start
-        </button>
-        :
-        <span>Loading...</span>
-      }
-    </>
-  );
-}
-
 // 20x20 Grid Component
-function Grid20x20({ placements, onPlace }: { placements: { x: number, y: number, emoji: string }[], onPlace: (x: number, y: number) => void }) {
+function Grid20x20({ placements, onPlace, pendingPlacements = [] }: { placements: { x: number, y: number, emoji: string }[], onPlace: (x: number, y: number) => void, pendingPlacements?: { x: number, y: number, emoji: string }[] }) {
   const size = 20;
   // Build a 2D array for the grid
   const grid: (string | null)[][] = Array.from({ length: size }, () => Array(size).fill(null));
@@ -233,19 +253,27 @@ function Grid20x20({ placements, onPlace }: { placements: { x: number, y: number
       grid[y][x] = emoji;
     }
   });
+  // Track pending placements separately
+  const pendingMap = new Map<string, string>();
+  pendingPlacements.forEach(({ x, y, emoji }) => {
+    if (x >= 0 && x < size && y >= 0 && y < size) {
+      pendingMap.set(`${x},${y}`, emoji);
+    }
+  });
   return (
     <div className="emoji-board-grid">
       {Array.from({ length: size * size }).map((_, idx) => {
         const x = idx % size;
         const y = Math.floor(idx / size);
+        const pendingEmoji = pendingMap.get(`${x},${y}`);
         return (
           <div
             key={idx}
             className="emoji-board-cell"
             onClick={() => onPlace(x, y)}
-            style={{ cursor: 'pointer' }}
+            style={{ cursor: 'pointer', opacity: pendingEmoji ? 0.5 : 1 }}
           >
-            {grid[y][x]}
+            {pendingEmoji ? pendingEmoji : grid[y][x]}
           </div>
         );
       })}
