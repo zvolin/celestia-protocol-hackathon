@@ -1,38 +1,20 @@
-import { useState, useEffect, useContext } from 'react'
-import { LuminaContext, LuminaContextProvider } from './Lumina.tsx'
-import { Network, NodeConfig, PeerTrackerInfoSnapshot, SyncingInfoSnapshot } from 'lumina-node'
+import { useState, useContext } from 'react'
+import { AppVersion, Blob, Namespace, Network, NodeConfig } from 'lumina-node'
+import { LeapClientContext } from './LeapClient.tsx'
+import { LuminaContext } from './Lumina.tsx'
 import './App.css'
 
 // A large subset of common emojis (can be expanded as needed)
 const EMOJI_LIST = [
-  '😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','😘','🥰','😗','😙','😚','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','🥱','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','😷','🤒','🤕','🤢','🤮','🥴','😇','🥳','🥺','🤠','🤡','🤥','🤫','🤭','🧐','🤓','😈','👿','👹','👺','💀','👻','👽','🤖','💩','😺','😸','😹','😻','😼','😽','🙀','😿','😾','🙈','🙉','🙊','🐵','🐒','🦍','🦧','🐶','🐕','🦮','🐕‍🦺','🐩','🐺','🦊','🦝','🐱','🐈','🐈‍⬛','🦁','🐯','🐅','🐆','🐴','🐎','🦄','🦓','🦌','🐮','🐂','🐃','🐄','🐷','🐖','🐗','🐽','🐏','🐑','🐐','🐪','🐫','🦙','🦒','🐘','🦏','🦛','🐭','🐁','🐀','🐹','🐰','🐇','🐿️','🦔','🦇','🐻','🐨','🐼','🦥','🦦','🦨','🦘','🦡','🐾','🦃','🐔','🐓','🐣','🐤','🐥','🐦','🐧','🕊️','🦅','🦆','🦢','🦉','🦩','🦚','🦜','🐸','🐊','🐢','🦎','🐍','🐲','🐉','🦕','🦖','🐳','🐋','🐬','🦭','🐟','🐠','🐡','🦈','🐙','🦑','🦐','🦞','🦀','🐚','🦧','🦮','🦥','🦦','🦨','🦩','🦪','🦫','🦭','🦮','🦯','🦴','🦵','🦶','🦷','🦸','🦹','🦺','🦻','🦼','🦽','🦾','🦿','🧀','🍕','🍔','🍟','🌭','🍿','🥓','🥩','🍗','🍖','🦴','🥚','🍳','🥞','🧇','🥯','🥨','🥐','🍞','🥖','🥪','🥙','🧆','🥗','🥘','🥫','🍝','🍜','🍲','🍛','🍣','🍱','🥟','🦪','🍤','🍙','🍚','🍘','🍥','🥠','🥮','🍢','🍡','🍧','🍨','🍦','🥧','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪','🌰','🥜','🍯','🥛','🍼','☕','🍵','🧃','🥤','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🍾','🥄','🍴','🍽️','🥣','🥡','🥢','🧂','⚽','🏀','🏈','⚾','🎾','🏐','🏉','🥏','🎱','🏓','🏸','🥅','🏒','🏑','🏏','🥍','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛷','⛸️','🥌','🎿','⛷️','🏂','🪂','🏋️','🤼','🤸','⛹️','🤺','🤾','🏌️','🏇','🧘','🏄','🏊','🤽','🚣','🧗','🚵','🚴','🏆','🥇','🥈','🥉','🏅','🎖️','🏵️','🎗️','🎫','🎟️','🎪','🤹','🧙','🧚','🧛','🧜','🧝','🧞','🧟','🧞‍♂️','🧞‍♀️','🧟‍♂️','🧟‍♀️','💌','💘','💝','💖','💗','💓','💞','💕','💟','❣️','💔','❤️','🧡','💛','💚','💙','💜','🤎','🖤','🤍','💯','💢','💥','💫','💦','💨','🕳️','💣','💬','👁️‍🗨️','🗨️','🗯️','💭','💤','👋','🤚','🖐️','✋','🖖','👌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦵','🦶','👂','🦻','👃','🧠','🦷','🦴','👀','👁️','👅','👄','💋','🩸','👶','🧒','👦','👧','🧑','👱','👨','🧔','👩','🧓','👴','👵','🙍','🙎','🙅','🙆','💁','🙋','🧏','🙇','🤦','🤷','🧑‍⚕️','🧑‍🎓','🧑‍🏫','🧑‍⚖️','🧑‍🌾','🧑‍🍳','🧑‍🔧','🧑‍🏭','🧑‍💼','🧑‍🔬','🧑‍💻','🧑‍🎤','🧑‍🎨','🧑‍✈️','🧑‍🚀','🧑‍🚒','👮','🕵️','💂','🥷','👷','🤴','👸','👳','👲','🧕','🤵','👰','🤰','🤱','👩‍🍼','🧑‍🍼','👼','🎅','🤶','🧑‍🎄'];
+  '😀', '😁', '😂', '🤣', '😃', '😄', '😅', '😆', '😉', '😊', '😋', '😎', '😍', '😘', '🥰', '😗', '😙', '😚', '🙂', '🤗', '🤩', '🤔', '🤨', '😐', '😑', '😶', '🙄', '😏', '😣', '😥', '😮', '🤐', '😯', '😪', '😫', '🥱', '😴', '😌', '😛', '😜', '😝', '🤤', '😒', '😓', '😔', '😕', '🙃', '🤑', '😲', '☹️', '🙁', '😖', '😞', '😟', '😤', '😢', '😭', '😦', '😧', '😨', '😩', '🤯', '😬', '😰', '😱', '🥵', '🥶', '😳', '🤪', '😵', '😡', '😠', '🤬', '😷', '🤒', '🤕', '🤢', '🤮', '🥴', '😇', '🥳', '🥺', '🤠', '🤡', '🤥', '🤫', '🤭', '🧐', '🤓', '😈', '👿', '👹', '👺', '💀', '👻', '👽', '🤖', '💩', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾', '🙈', '🙉', '🙊', '🐵', '🐒', '🦍', '🦧', '🐶', '🐕', '🦮', '🐕‍🦺', '🐩', '🐺', '🦊', '🦝', '🐱', '🐈', '🐈‍⬛', '🦁', '🐯', '🐅', '🐆', '🐴', '🐎', '🦄', '🦓', '🦌', '🐮', '🐂', '🐃', '🐄', '🐷', '🐖', '🐗', '🐽', '🐏', '🐑', '🐐', '🐪', '🐫', '🦙', '🦒', '🐘', '🦏', '🦛', '🐭', '🐁', '🐀', '🐹', '🐰', '🐇', '🐿️', '🦔', '🦇', '🐻', '🐨', '🐼', '🦥', '🦦', '🦨', '🦘', '🦡', '🐾', '🦃', '🐔', '🐓', '🐣', '🐤', '🐥', '🐦', '🐧', '🕊️', '🦅', '🦆', '🦢', '🦉', '🦩', '🦚', '🦜', '🐸', '🐊', '🐢', '🦎', '🐍', '🐲', '🐉', '🦕', '🦖', '🐳', '🐋', '🐬', '🦭', '🐟', '🐠', '🐡', '🦈', '🐙', '🦑', '🦐', '🦞', '🦀', '🐚', '🦧', '🦮', '🦥', '🦦', '🦨', '🦩', '🦪', '🦫', '🦭', '🦮', '🦯', '🦴', '🦵', '🦶', '🦷', '🦸', '🦹', '🦺', '🦻', '🦼', '🦽', '🦾', '🦿', '🧀', '🍕', '🍔', '🍟', '🌭', '🍿', '🥓', '🥩', '🍗', '🍖', '🦴', '🥚', '🍳', '🥞', '🧇', '🥯', '🥨', '🥐', '🍞', '🥖', '🥪', '🥙', '🧆', '🥗', '🥘', '🥫', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🍯', '🥛', '🍼', '☕', '🍵', '🧃', '🥤', '🍶', '🍺', '🍻', '🥂', '🍷', '🥃', '🍸', '🍹', '🧉', '🍾', '🥄', '🍴', '🍽️', '🥣', '🥡', '🥢', '🧂', '⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏉', '🥏', '🎱', '🏓', '🏸', '🥅', '🏒', '🏑', '🏏', '🥍', '🏹', '🎣', '🤿', '🥊', '🥋', '🎽', '🛹', '🛷', '⛸️', '🥌', '🎿', '⛷️', '🏂', '🪂', '🏋️', '🤼', '🤸', '⛹️', '🤺', '🤾', '🏌️', '🏇', '🧘', '🏄', '🏊', '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🏵️', '🎗️', '🎫', '🎟️', '🎪', '🤹', '🧙', '🧚', '🧛', '🧜', '🧝', '🧞', '🧟', '🧞‍♂️', '🧞‍♀️', '🧟‍♂️', '🧟‍♀️', '💌', '💘', '💝', '💖', '💗', '💓', '💞', '💕', '💟', '❣️', '💔', '❤️', '🧡', '💛', '💚', '💙', '💜', '🤎', '🖤', '🤍', '💯', '💢', '💥', '💫', '💦', '💨', '🕳️', '💣', '💬', '👁️‍🗨️', '🗨️', '🗯️', '💭', '💤', '👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦵', '🦶', '👂', '🦻', '👃', '🧠', '🦷', '🦴', '👀', '👁️', '👅', '👄', '💋', '🩸', '👶', '🧒', '👦', '👧', '🧑', '👱', '👨', '🧔', '👩', '🧓', '👴', '👵', '🙍', '🙎', '🙅', '🙆', '💁', '🙋', '🧏', '🙇', '🤦', '🤷', '🧑‍⚕️', '🧑‍🎓', '🧑‍🏫', '🧑‍⚖️', '🧑‍🌾', '🧑‍🍳', '🧑‍🔧', '🧑‍🏭', '🧑‍💼', '🧑‍🔬', '🧑‍💻', '🧑‍🎤', '🧑‍🎨', '🧑‍✈️', '🧑‍🚀', '🧑‍🚒', '👮', '🕵️', '💂', '🥷', '👷', '🤴', '👸', '👳', '👲', '🧕', '🤵', '👰', '🤰', '🤱', '👩‍🍼', '🧑‍🍼', '👼', '🎅', '🤶', '🧑‍🎄'];
 
 // Hardcoded namespace for the project
 const NAMESPACE = [97, 98, 99, 100, 101, 102, 103, 104]; // 8 bytes, example
 
-// Dummy Blob and Namespace classes for demonstration (replace with actual Celestia SDK in production)
-class Namespace {
-  static newV0(arr: Uint8Array) {
-    return { version: 0, id: Array.from(arr) };
-  }
-}
-class AppVersion {
-  static latest() {
-    return 1;
-  }
-}
-class Blob {
-  public ns: any;
-  public data: Uint8Array;
-  public version: number;
-  constructor(ns: any, data: Uint8Array, version: number) {
-    this.ns = ns;
-    this.data = data;
-    this.version = version;
-  }
-}
-
 function App() {
+  const txClient = useContext(LeapClientContext);
+  console.log(txClient);
+
   const [selectedEmoji, setSelectedEmoji] = useState(EMOJI_LIST[0]);
   const [placements, setPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
   const [lastBlob, setLastBlob] = useState<any>(null);
@@ -50,6 +32,7 @@ function App() {
     const data = new TextEncoder().encode(dataStr);
     const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
     const blob = new Blob(ns, data, AppVersion.latest());
+    console.log(blob);
     const blobObj = {
       ns,
       data: Array.from(data),
@@ -100,30 +83,27 @@ function App() {
   }
 
   return (
-    <LuminaContextProvider>
-      <main>
-        <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
-        <div className="selected-emoji-display">{selectedEmoji}</div>
-        <div style={{ textAlign: 'center', margin: '1rem 0' }}>
-          <label htmlFor="blobs-upload" className="upload-blobs-label">Load blobs.json to reconstruct board: </label>
-          <input id="blobs-upload" type="file" accept="application/json" onChange={handleBlobsFileUpload} />
+    <main>
+      <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
+      <div className="selected-emoji-display">{selectedEmoji}</div>
+      <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+        <label htmlFor="blobs-upload" className="upload-blobs-label">Load blobs.json to reconstruct board: </label>
+        <input id="blobs-upload" type="file" accept="application/json" onChange={handleBlobsFileUpload} />
+      </div>
+      <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} />
+      <Launcher />
+      {lastBlob && (
+        <div className="blob-display">
+          <h3>Last Created Blob Data</h3>
+          <pre>{JSON.stringify(lastBlob, null, 2)}</pre>
         </div>
-        <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} />
-        <Launcher />
-        <Stats />
-        {lastBlob && (
-          <div className="blob-display">
-            <h3>Last Created Blob Data</h3>
-            <pre>{JSON.stringify(lastBlob, null, 2)}</pre>
-          </div>
-        )}
-        {allBlobs.length > 0 && (
-          <div style={{ textAlign: 'center', margin: '2rem 0' }}>
-            <button onClick={downloadBlobs} className="download-blobs-btn">Download blobs.json</button>
-          </div>
-        )}
-      </main>
-    </LuminaContextProvider>
+      )}
+      {allBlobs.length > 0 && (
+        <div style={{ textAlign: 'center', margin: '2rem 0' }}>
+          <button onClick={downloadBlobs} className="download-blobs-btn">Download blobs.json</button>
+        </div>
+      )}
+    </main>
   )
 }
 
@@ -147,46 +127,6 @@ function Launcher() {
         <span>Loading...</span>
       }
     </>
-  );
-}
-
-function Stats() {
-  const node = useContext(LuminaContext);
-
-  const [peerTrackerInfo, setPeerTrackerInfo] = useState<PeerTrackerInfoSnapshot | null>();
-  const [syncerInfo, setSyncerInfo] = useState<SyncingInfoSnapshot | null>();
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const update = async () => {
-        if (node && await node.isRunning()) {
-          setPeerTrackerInfo(await node.peerTrackerInfo());
-          setSyncerInfo(await node.syncerInfo());
-        }
-      };
-      update();
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [node]);
-
-  if (!peerTrackerInfo || !syncerInfo) {
-    return;
-  }
-
-  return (
-    <div>
-      <div>network head: {syncerInfo.subjective_head.toString()}</div>
-      <div>
-        stored headers:
-        {syncerInfo.stored_headers.map((range) => {
-          return ` ${range.start}..${range.end}`;
-        })}
-      </div>
-      <div>
-        peers: {peerTrackerInfo.num_connected_peers.toString()} (
-        {peerTrackerInfo.num_connected_trusted_peers.toString()} trusted)
-      </div>
-    </div>
   );
 }
 
@@ -225,7 +165,7 @@ function EmojiPicker({ emojis, selected, onSelect }: { emojis: string[], selecte
   const [currentPage, setCurrentPage] = useState(0);
   const emojisPerPage = 20;
   const totalPages = Math.ceil(emojis.length / emojisPerPage);
-  
+
   const startIndex = currentPage * emojisPerPage;
   const endIndex = startIndex + emojisPerPage;
   const currentEmojis = emojis.slice(startIndex, endIndex);
@@ -244,14 +184,14 @@ function EmojiPicker({ emojis, selected, onSelect }: { emojis: string[], selecte
         ))}
       </div>
       <div className="emoji-pagination">
-        <button 
+        <button
           onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
           disabled={currentPage === 0}
         >
           Previous
         </button>
         <span>Page {currentPage + 1} of {totalPages}</span>
-        <button 
+        <button
           onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
           disabled={currentPage === totalPages - 1}
         >
