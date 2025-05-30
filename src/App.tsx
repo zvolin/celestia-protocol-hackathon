@@ -18,10 +18,10 @@ function App() {
 
   const [selectedEmoji, setSelectedEmoji] = useState(EMOJI_LIST[0]);
   const [placements, setPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
-  const [lastBlob, setLastBlob] = useState<any>(null);
-  const [allBlobs, setAllBlobs] = useState<any[]>([]);
+  const [_lastBlob, setLastBlob] = useState<any>(null);
+  const [_allBlobs, setAllBlobs] = useState<any[]>([]);
   const [reconstructedPlacements, setReconstructedPlacements] = useState<{ x: number, y: number, emoji: string }[] | null>(null);
-  const [loadingReconstruct, setLoadingReconstruct] = useState(false);
+  const [_loadingReconstruct, setLoadingReconstruct] = useState(false);
   const [nodeStarted, setNodeStarted] = useState(false);
   const [lastPlacedInfo, setLastPlacedInfo] = useState<{ x: number, y: number, emoji: string } | null>(null);
   const [pendingPlacements, setPendingPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
@@ -61,71 +61,48 @@ function App() {
   // Periodic board refresh: every second, check for new header height and fetch new blobs if needed
   useEffect(() => {
     if (!nodeStarted || !node) return;
-    let interval: NodeJS.Timeout;
-    interval = setInterval(async () => {
+    const interval = setInterval(async () => {
       try {
-        const headHeader = await node.requestHeadHeader();
+        await node.waitConnected();
+        var headHeader = await node.requestHeadHeader();
+        headHeader = await node.requestHeaderByHeight(headHeader.height() - BigInt(1));
         const latestHeight = Number(headHeader.height());
-        if (lastSeenHeightRef.current === null) {
-          lastSeenHeightRef.current = latestHeight;
-          return;
-        }
-        if (latestHeight > lastSeenHeightRef.current) {
+
+        if (lastSeenHeightRef.current === null || latestHeight > lastSeenHeightRef.current) {
           console.log("New height:", latestHeight);
-          let startHeight = lastSeenHeightRef.current + 1
           lastSeenHeightRef.current = latestHeight;
+          await (new Promise(resolve => setTimeout(resolve, 10000)));
           // For each unseen height, fetch blobs and update board concurrently
           const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
-          const heights: number[] = [];
-          for (let h = startHeight; h <= latestHeight; h++) {
-            heights.push(h);
+          console.log('Fetching blobs for height', latestHeight);
+          const blobs = await node.requestAllBlobs(headHeader, ns, 1);
+
+          if (blobs.length === 0) {
+            console.log("No blobs found at height:", latestHeight);
+            return;
           }
-          // Fetch all headers concurrently
-          console.log('Fetching headers concurrently for heights:', heights);
-          const headerPromises = heights.map(h => node.requestHeaderByHeight(BigInt(h)).catch(e => null));
-          const headers = await Promise.all(headerPromises);
-          console.log('Fetched headers:', headers);
-          // Fetch all blobs concurrently for valid headers
-          console.log('Fetching blobs concurrently for valid headers...');
-          const blobPromises = headers.map(async (header, idx) => {
-            if (!header) return Promise.resolve([]);
-            console.log(`Requesting all blobs for header at height: ${heights[idx]}; header: ${header}`);
-            const blobs = await node.requestAllBlobs(header, ns, 10);
-            return blobs;
-          });
-          const blobsArrays = await Promise.all(blobPromises);
-          console.log('Fetched blobs arrays:', blobsArrays);
-          // Process blobs for each height
-          blobsArrays.forEach((blobs, idx) => {
-            const h = heights[idx];
-            console.log("Processing blobs at height:", h);
-            if (blobs.length === 0) {
-              console.log("No blobs found at height:", h);
-              return;
+          console.log("Found blobs at height:", latestHeight, blobs.length);
+          for (const blob of blobs) {
+            try {
+              console.log(`Decoding blob data for blob at height ${latestHeight}:`, blob);
+              const data = new TextDecoder().decode(blob.data);
+              console.log(`Decoded data at height ${latestHeight}:`, data);
+              console.log(`Parsing JSON data for placement at height ${latestHeight}`);
+              const placement = JSON.parse(data);
+              console.log(`Parsed placement at height ${latestHeight}:`, placement);
+              setReconstructedPlacements(prev => {
+                const safePrev = prev ?? [];
+                const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
+                return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
+              });
+            } catch (e) {
+              // Ignore parse errors
+              console.warn(`Failed to parse blob at height ${latestHeight}`);
             }
-            console.log("Found blobs at height:", h, blobs.length);
-            for (const blob of blobs) {
-              try {
-                console.log(`Decoding blob data for blob at height ${h}:`, blob);
-                const data = new TextDecoder().decode(blob.data);
-                console.log(`Decoded data at height ${h}:`, data);
-                console.log(`Parsing JSON data for placement at height ${h}`);
-                const placement = JSON.parse(data);
-                console.log(`Parsed placement at height ${h}:`, placement);
-                setReconstructedPlacements(prev => {
-                  const safePrev = prev ?? [];
-                  const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
-                  return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
-                });
-              } catch (e) {
-                // Ignore parse errors
-                console.warn(`Failed to parse blob at height ${h}`);
-              }
-            }
-          });
+          }
         }
       } catch (e) {
-        // Ignore errors
+        console.warn("Errors when fetching blobs for new height:", e);
       }
     }, 1000);
     return () => {
@@ -274,7 +251,7 @@ function App() {
       });
       // Fetch all headers concurrently for uncached heights
       console.log('Fetching headers concurrently for uncached heights:', uncachedHeights);
-      const headerPromises = uncachedHeights.map(h => node.requestHeaderByHeight(BigInt(h)).catch(e => null));
+      const headerPromises = uncachedHeights.map(h => node.requestHeaderByHeight(BigInt(h)).catch(_e => null));
       const headers = await Promise.all(headerPromises);
       console.log('Fetched headers:', headers);
       // Fetch all blobs concurrently for valid headers
@@ -282,7 +259,7 @@ function App() {
       const blobPromises = headers.map((header, idx) => {
         if (!header) return Promise.resolve([]);
         console.log(`Requesting all blobs for header at height: ${uncachedHeights[idx]}, namespace:`, ns);
-        return node.requestAllBlobs(header, ns, 10).catch(e => []);
+        return node.requestAllBlobs(header, ns, 10).catch(_e => []);
       });
       const blobsArrays = await Promise.all(blobPromises);
       console.log('Fetched blobs arrays:', blobsArrays);
