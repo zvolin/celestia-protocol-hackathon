@@ -1,4 +1,4 @@
-import { useState, useContext, useEffect } from 'react'
+import { useState, useContext, useEffect, useRef } from 'react'
 import { AppVersion, Blob, Namespace, Network, NodeConfig } from 'lumina-node'
 import { LeapClientContext } from './LeapClient.tsx'
 import { LuminaContext } from './Lumina.tsx'
@@ -18,8 +18,10 @@ function App() {
 
   const [selectedEmoji, setSelectedEmoji] = useState(EMOJI_LIST[0]);
   const [placements, setPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
+  const [lastBlob, setLastBlob] = useState<any>(null);
+  const [allBlobs, setAllBlobs] = useState<any[]>([]);
   const [reconstructedPlacements, setReconstructedPlacements] = useState<{ x: number, y: number, emoji: string }[] | null>(null);
-  const [_, setLoadingReconstruct] = useState(false);
+  const [loadingReconstruct, setLoadingReconstruct] = useState(false);
   const [nodeStarted, setNodeStarted] = useState(false);
   const [lastPlacedInfo, setLastPlacedInfo] = useState<{ x: number, y: number, emoji: string } | null>(null);
   const [pendingPlacements, setPendingPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
@@ -65,6 +67,12 @@ function App() {
     const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
     const blob = new Blob(ns, data, AppVersion.latest());
     console.log(blob);
+    const blobObj = {
+      ns,
+      data: Array.from(data),
+      version: AppVersion.latest(),
+      placement
+    };
 
     // Submit blob using txClient
     if (txClient) {
@@ -74,7 +82,9 @@ function App() {
         // Only update frontend if transaction is successful
         console.log(`Placing emoji at (${x}, ${y}):`, selectedEmoji);
         setPlacements(prev => [...prev, placement]);
+        setLastBlob(blobObj);
         setLastPlacedInfo({ x, y, emoji: selectedEmoji });
+        setAllBlobs(prev => [...prev, blobObj]);
         // Also update reconstructedPlacements if it is not null
         setReconstructedPlacements(prev => {
           if (prev === null) return prev;
@@ -218,7 +228,8 @@ function App() {
   }
 
   return (
-    <main>
+    <main style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', zIndex: 1 }}>
+      <FallingEmojisBackground emojis={EMOJI_LIST} />
       <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
       <div className="selected-emoji-display">{selectedEmoji}</div>
       <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} pendingPlacements={pendingPlacements} />
@@ -310,5 +321,95 @@ function EmojiPicker({ emojis, selected, onSelect }: { emojis: string[], selecte
         </button>
       </div>
     </div>
+  );
+}
+
+// Add a new FallingEmojisBackground component
+function FallingEmojisBackground({ emojis }: { emojis: string[] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number>();
+  const emojiCount = 80;
+  const emojiObjs = useRef<any[]>([]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+
+    function randomEmoji() {
+      return emojis[Math.floor(Math.random() * emojis.length)];
+    }
+    function randomX() {
+      return Math.random() * width;
+    }
+    function randomSpeed() {
+      return 1 + Math.random() * 2;
+    }
+    function randomFontSize() {
+      return 24 + Math.random() * 32;
+    }
+    // Initialize emoji objects
+    emojiObjs.current = Array.from({ length: emojiCount }).map(() => ({
+      emoji: randomEmoji(),
+      x: randomX(),
+      y: Math.random() * height,
+      speed: randomSpeed(),
+      fontSize: randomFontSize(),
+      opacity: 0.7 + Math.random() * 0.3,
+    }));
+
+    function draw() {
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+      for (const obj of emojiObjs.current) {
+        ctx.globalAlpha = obj.opacity;
+        ctx.font = `${obj.fontSize}px serif`;
+        ctx.fillText(obj.emoji, obj.x, obj.y);
+        obj.y += obj.speed;
+        if (obj.y > height + 40) {
+          obj.emoji = randomEmoji();
+          obj.x = randomX();
+          obj.y = -40;
+          obj.speed = randomSpeed();
+          obj.fontSize = randomFontSize();
+          obj.opacity = 0.7 + Math.random() * 0.3;
+        }
+      }
+      ctx.globalAlpha = 1;
+      animationRef.current = requestAnimationFrame(draw);
+    }
+    draw();
+    function handleResize() {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      if (!canvas) return;
+      canvas.width = width;
+      canvas.height = height;
+    }
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [emojis]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        zIndex: -1,
+        pointerEvents: 'none',
+      }}
+    />
   );
 }
