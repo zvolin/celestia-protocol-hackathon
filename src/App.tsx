@@ -26,6 +26,11 @@ function App() {
   const [lastPlacedInfo, setLastPlacedInfo] = useState<{ x: number, y: number, emoji: string } | null>(null);
   const [pendingPlacements, setPendingPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
 
+  // Ref to track last seen header height for periodic refresh
+  const lastSeenHeightRef = useRef<number | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [avoidXRange, setAvoidXRange] = useState<[number, number]>([0, 0]);
+
   // Automatically start the node on mount
   useEffect(() => {
     if (!node) return;
@@ -52,6 +57,91 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeStarted]);
+
+  // Periodic board refresh: every second, check for new header height and fetch new blobs if needed
+  useEffect(() => {
+    if (!nodeStarted || !node) return;
+    let interval: NodeJS.Timeout;
+    let cancelled = false;
+    interval = setInterval(async () => {
+      try {
+        const headHeader = await node.requestHeadHeader();
+        const latestHeight = Number(headHeader.height());
+        if (lastSeenHeightRef.current === null) {
+          lastSeenHeightRef.current = latestHeight;
+          return;
+        }
+        if (latestHeight > lastSeenHeightRef.current) {
+          console.log("New height:", latestHeight);
+          let startHeight = lastSeenHeightRef.current + 1
+          lastSeenHeightRef.current = latestHeight;
+          // For each unseen height, fetch blobs and update board
+          for (let h = startHeight; h <= latestHeight; h++) {
+            console.log("Cancelled: ", cancelled)
+            if (cancelled) return;
+            try {
+              console.log(`Fetching header for height: ${h}`);
+              const header = await node.requestHeaderByHeight(BigInt(h));
+
+              const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
+
+              console.log(`Requesting all blobs for header at height: ${h}`);
+              const blobs = await node.requestAllBlobs(header, ns, 10); // 10s timeout
+              console.log(`Blobs fetched for height: ${h}`, blobs);
+
+              if (blobs.length === 0) {
+                continue;
+              }
+
+              console.log("Found blobs at height:", h, blobs.length);
+
+              for (const blob of blobs) {
+                try {
+                  console.log(`Decoding blob data for blob:`, blob);
+                  const data = new TextDecoder().decode(blob.data);
+                  console.log(`Decoded data:`, data);
+
+                  console.log(`Parsing JSON data for placement`);
+                  const placement = JSON.parse(data);
+                  console.log(`Parsed placement:`, placement);
+                  setReconstructedPlacements(prev => {
+                    const safePrev = prev ?? [];
+                    const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
+                    return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
+                  });
+                } catch (e) {
+                  // Ignore parse errors
+                  console.warn(`Failed to parse blob at height ${h}`);
+                }
+              }
+            } catch (e) {
+              // Ignore errors for missing blocks
+              console.warn(`Failed to fetch header or blobs at height ${h}`);
+            }
+          }
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [nodeStarted, node]);
+
+  // Measure the board's x-range after mount and on resize
+  useEffect(() => {
+    function updateRange() {
+      if (boardRef.current) {
+        const rect = boardRef.current.getBoundingClientRect();
+        setAvoidXRange([rect.left, rect.right]);
+      }
+    }
+    updateRange();
+    window.addEventListener('resize', updateRange);
+    return () => window.removeEventListener('resize', updateRange);
+  }, []);
 
   // Handler for placing an emoji
   async function handlePlaceEmoji(x: number, y: number) {
@@ -229,10 +319,24 @@ function App() {
 
   return (
     <main style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', zIndex: 1 }}>
-      <FallingEmojisBackground emojis={EMOJI_LIST} />
+      <h1 style={{
+        textAlign: 'center',
+        fontSize: '2.8rem',
+        fontWeight: 800,
+        letterSpacing: '0.05em',
+        margin: '2rem 0 1.5rem 0',
+        color: '#6c47ff',
+        textShadow: '0 2px 16px #e0d6ff, 0 1px 0 #fff',
+        fontFamily: 'Segoe UI, Arial, sans-serif',
+      }}>
+        Celestia Vibes
+      </h1>
+      <FallingEmojisBackground emojis={EMOJI_LIST} avoidXRange={avoidXRange} />
+      <div ref={boardRef}>
+        <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} pendingPlacements={pendingPlacements} />
+      </div>
       <EmojiPicker emojis={EMOJI_LIST} selected={selectedEmoji} onSelect={setSelectedEmoji} />
       <div className="selected-emoji-display">{selectedEmoji}</div>
-      <Grid20x20 placements={reconstructedPlacements ?? placements} onPlace={handlePlaceEmoji} pendingPlacements={pendingPlacements} />
       {lastPlacedInfo && (
         <div style={{ textAlign: 'center', margin: '2rem 0', fontSize: '1.2rem' }}>
           <strong>Last placed:</strong> {lastPlacedInfo.emoji} at ({lastPlacedInfo.x}, {lastPlacedInfo.y})
@@ -325,7 +429,7 @@ function EmojiPicker({ emojis, selected, onSelect }: { emojis: string[], selecte
 }
 
 // Add a new FallingEmojisBackground component
-function FallingEmojisBackground({ emojis }: { emojis: string[] }) {
+function FallingEmojisBackground({ emojis, avoidXRange }: { emojis: string[], avoidXRange?: [number, number] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>();
   const emojiCount = 80;
@@ -345,7 +449,15 @@ function FallingEmojisBackground({ emojis }: { emojis: string[] }) {
       return emojis[Math.floor(Math.random() * emojis.length)];
     }
     function randomX() {
-      return Math.random() * width;
+      let x;
+      let tries = 0;
+      do {
+        x = Math.random() * width;
+        tries++;
+      } while (
+        avoidXRange && avoidXRange[1] > avoidXRange[0] && x >= avoidXRange[0] && x <= avoidXRange[1] && tries < 10
+      );
+      return x;
     }
     function randomSpeed() {
       return 1 + Math.random() * 2;
@@ -396,7 +508,7 @@ function FallingEmojisBackground({ emojis }: { emojis: string[] }) {
       window.removeEventListener('resize', handleResize);
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [emojis]);
+  }, [emojis, avoidXRange]);
 
   return (
     <canvas
