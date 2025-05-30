@@ -87,10 +87,11 @@ function App() {
           console.log('Fetched headers:', headers);
           // Fetch all blobs concurrently for valid headers
           console.log('Fetching blobs concurrently for valid headers...');
-          const blobPromises = headers.map((header, idx) => {
+          const blobPromises = headers.map(async (header, idx) => {
             if (!header) return Promise.resolve([]);
             console.log(`Requesting all blobs for header at height: ${heights[idx]}; header: ${header}`);
-            return node.requestAllBlobs(header, ns, 10).catch(e => []);
+            const blobs = await node.requestAllBlobs(header, ns, 10);
+            return blobs;
           });
           const blobsArrays = await Promise.all(blobPromises);
           console.log('Fetched blobs arrays:', blobsArrays);
