@@ -62,7 +62,6 @@ function App() {
   useEffect(() => {
     if (!nodeStarted || !node) return;
     let interval: NodeJS.Timeout;
-    let cancelled = false;
     interval = setInterval(async () => {
       try {
         const headHeader = await node.requestHeadHeader();
@@ -75,57 +74,60 @@ function App() {
           console.log("New height:", latestHeight);
           let startHeight = lastSeenHeightRef.current + 1
           lastSeenHeightRef.current = latestHeight;
-          // For each unseen height, fetch blobs and update board
+          // For each unseen height, fetch blobs and update board concurrently
+          const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
+          const heights: number[] = [];
           for (let h = startHeight; h <= latestHeight; h++) {
-            console.log("Cancelled: ", cancelled)
-            if (cancelled) return;
-            try {
-              console.log(`Fetching header for height: ${h}`);
-              const header = await node.requestHeaderByHeight(BigInt(h));
-
-              const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
-
-              console.log(`Requesting all blobs for header at height: ${h}`);
-              const blobs = await node.requestAllBlobs(header, ns, 10); // 10s timeout
-              console.log(`Blobs fetched for height: ${h}`, blobs);
-
-              if (blobs.length === 0) {
-                continue;
-              }
-
-              console.log("Found blobs at height:", h, blobs.length);
-
-              for (const blob of blobs) {
-                try {
-                  console.log(`Decoding blob data for blob:`, blob);
-                  const data = new TextDecoder().decode(blob.data);
-                  console.log(`Decoded data:`, data);
-
-                  console.log(`Parsing JSON data for placement`);
-                  const placement = JSON.parse(data);
-                  console.log(`Parsed placement:`, placement);
-                  setReconstructedPlacements(prev => {
-                    const safePrev = prev ?? [];
-                    const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
-                    return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
-                  });
-                } catch (e) {
-                  // Ignore parse errors
-                  console.warn(`Failed to parse blob at height ${h}`);
-                }
-              }
-            } catch (e) {
-              // Ignore errors for missing blocks
-              console.warn(`Failed to fetch header or blobs at height ${h}`);
-            }
+            heights.push(h);
           }
+          // Fetch all headers concurrently
+          console.log('Fetching headers concurrently for heights:', heights);
+          const headerPromises = heights.map(h => node.requestHeaderByHeight(BigInt(h)).catch(e => null));
+          const headers = await Promise.all(headerPromises);
+          console.log('Fetched headers:', headers);
+          // Fetch all blobs concurrently for valid headers
+          console.log('Fetching blobs concurrently for valid headers...');
+          const blobPromises = headers.map((header, idx) => {
+            if (!header) return Promise.resolve([]);
+            console.log(`Requesting all blobs for header at height: ${heights[idx]}; header: ${header}`);
+            return node.requestAllBlobs(header, ns, 10).catch(e => []);
+          });
+          const blobsArrays = await Promise.all(blobPromises);
+          console.log('Fetched blobs arrays:', blobsArrays);
+          // Process blobs for each height
+          blobsArrays.forEach((blobs, idx) => {
+            const h = heights[idx];
+            console.log("Processing blobs at height:", h);
+            if (blobs.length === 0) {
+              console.log("No blobs found at height:", h);
+              return;
+            }
+            console.log("Found blobs at height:", h, blobs.length);
+            for (const blob of blobs) {
+              try {
+                console.log(`Decoding blob data for blob at height ${h}:`, blob);
+                const data = new TextDecoder().decode(blob.data);
+                console.log(`Decoded data at height ${h}:`, data);
+                console.log(`Parsing JSON data for placement at height ${h}`);
+                const placement = JSON.parse(data);
+                console.log(`Parsed placement at height ${h}:`, placement);
+                setReconstructedPlacements(prev => {
+                  const safePrev = prev ?? [];
+                  const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
+                  return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
+                });
+              } catch (e) {
+                // Ignore parse errors
+                console.warn(`Failed to parse blob at height ${h}`);
+              }
+            }
+          });
         }
       } catch (e) {
         // Ignore errors
       }
     }, 1000);
     return () => {
-      cancelled = true;
       clearInterval(interval);
     };
   }, [nodeStarted, node]);
@@ -241,9 +243,14 @@ function App() {
       // 4. Fetch blobs for each block in range (concurrently)
       const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
       let allBlobs: any[] = [];
-      const fetchPromises = [];
       const blobsCache = getBlobsCache();
+      const heights: number[] = [];
       for (let h = latestHeight; h >= startHeight; h--) {
+        heights.push(h);
+      }
+      // First, check cache and build fetch lists
+      const uncachedHeights: number[] = [];
+      heights.forEach(h => {
         if (blobsCache[h]) {
           // Use cached blobs for this height
           console.log(`Using cached blobs for height ${h}`);
@@ -260,40 +267,52 @@ function App() {
               console.warn(`Failed to parse cached blob at height ${h}`);
             }
           }
-          continue;
+        } else {
+          uncachedHeights.push(h);
         }
-        fetchPromises.push((async () => {
+      });
+      // Fetch all headers concurrently for uncached heights
+      console.log('Fetching headers concurrently for uncached heights:', uncachedHeights);
+      const headerPromises = uncachedHeights.map(h => node.requestHeaderByHeight(BigInt(h)).catch(e => null));
+      const headers = await Promise.all(headerPromises);
+      console.log('Fetched headers:', headers);
+      // Fetch all blobs concurrently for valid headers
+      console.log('Fetching blobs concurrently for valid headers...');
+      const blobPromises = headers.map((header, idx) => {
+        if (!header) return Promise.resolve([]);
+        console.log(`Requesting all blobs for header at height: ${uncachedHeights[idx]}, namespace:`, ns);
+        return node.requestAllBlobs(header, ns, 10).catch(e => []);
+      });
+      const blobsArrays = await Promise.all(blobPromises);
+      console.log('Fetched blobs arrays:', blobsArrays);
+      // Process blobs for each uncached height
+      blobsArrays.forEach((blobs, idx) => {
+        const h = uncachedHeights[idx];
+        blobsCache[h] = [];
+        if (blobs.length === 0) {
+          return;
+        }
+        for (const blob of blobs) {
           try {
-            console.log(`Requesting header for height: ${h}`);
-            const header = await node.requestHeaderByHeight(BigInt(h));
-            console.log(`Requesting all blobs for height: ${h}, namespace:`, ns);
-            const blobs = await node.requestAllBlobs(header, ns, 10); // 10s timeout
-            console.log(`Found ${blobs.length} blobs at height ${h}`);
-            blobsCache[h] = [];
-            for (const blob of blobs) {
-              try {
-                const data = new TextDecoder().decode(blob.data);
-                const placement = JSON.parse(data);
-                console.log(`Retrieved placement from node at height ${h}, time ${header.header.time}:`, placement);
-                setReconstructedPlacements(prev => {
-                  const safePrev = prev ?? [];
-                  const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
-                  return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
-                });
-                allBlobs.push({ placement, height: h, time: header.header.time });
-                blobsCache[h].push({ data, time: header.header.time });
-              } catch (e) {
-                // Ignore parse errors
-                console.warn(`Failed to parse blob at height ${h}`);
-              }
-            }
+            console.log(`Decoding blob data for blob at height ${h}:`, blob);
+            const data = new TextDecoder().decode(blob.data);
+            console.log(`Decoded data at height ${h}:`, data);
+            console.log(`Parsing JSON data for placement at height ${h}`);
+            const placement = JSON.parse(data);
+            console.log(`Retrieved placement from node at height ${h}, time ${headers[idx]?.header?.time}:`, placement);
+            setReconstructedPlacements(prev => {
+              const safePrev = prev ?? [];
+              const filtered = safePrev.filter(p => !(p.x === placement.x && p.y === placement.y));
+              return [...filtered, { x: placement.x, y: placement.y, emoji: placement.emoji }];
+            });
+            allBlobs.push({ placement, height: h, time: headers[idx]?.header?.time });
+            blobsCache[h].push({ data, time: headers[idx]?.header?.time });
           } catch (e) {
-            // Ignore missing blocks
-            console.warn(`Failed to fetch header or blobs at height ${h}`);
+            // Ignore parse errors
+            console.warn(`Failed to parse blob at height ${h}`);
           }
-        })());
-      }
-      await Promise.all(fetchPromises);
+        }
+      });
       setBlobsCache(blobsCache);
 
       // 5. Aggregate placements: latest per coordinate wins
@@ -326,7 +345,7 @@ function App() {
         letterSpacing: '0.05em',
         margin: '2rem 0 1.5rem 0',
         color: '#6c47ff',
-        textShadow: '0 2px 16px #e0d6ff, 0 1px 0 #fff',
+        textShadow: '0 2px 16px #e0d6ff, 0 1px 0 #000',
         fontFamily: 'Segoe UI, Arial, sans-serif',
       }}>
         Celestia Vibes
