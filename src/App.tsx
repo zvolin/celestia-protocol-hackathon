@@ -18,10 +18,8 @@ function App() {
 
   const [selectedEmoji, setSelectedEmoji] = useState(EMOJI_LIST[0]);
   const [placements, setPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
-  const [lastBlob, setLastBlob] = useState<any>(null);
-  const [allBlobs, setAllBlobs] = useState<any[]>([]);
   const [reconstructedPlacements, setReconstructedPlacements] = useState<{ x: number, y: number, emoji: string }[] | null>(null);
-  const [loadingReconstruct, setLoadingReconstruct] = useState(false);
+  const [_, setLoadingReconstruct] = useState(false);
   const [nodeStarted, setNodeStarted] = useState(false);
   const [lastPlacedInfo, setLastPlacedInfo] = useState<{ x: number, y: number, emoji: string } | null>(null);
   const [pendingPlacements, setPendingPlacements] = useState<{ x: number, y: number, emoji: string }[]>([]);
@@ -67,12 +65,6 @@ function App() {
     const ns = Namespace.newV0(new Uint8Array(NAMESPACE));
     const blob = new Blob(ns, data, AppVersion.latest());
     console.log(blob);
-    const blobObj = {
-      ns,
-      data: Array.from(data),
-      version: AppVersion.latest(),
-      placement
-    };
 
     // Submit blob using txClient
     if (txClient) {
@@ -82,9 +74,7 @@ function App() {
         // Only update frontend if transaction is successful
         console.log(`Placing emoji at (${x}, ${y}):`, selectedEmoji);
         setPlacements(prev => [...prev, placement]);
-        setLastBlob(blobObj);
         setLastPlacedInfo({ x, y, emoji: selectedEmoji });
-        setAllBlobs(prev => [...prev, blobObj]);
         // Also update reconstructedPlacements if it is not null
         setReconstructedPlacements(prev => {
           if (prev === null) return prev;
