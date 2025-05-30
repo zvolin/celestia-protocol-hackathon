@@ -89,7 +89,7 @@ function App() {
           console.log('Fetching blobs concurrently for valid headers...');
           const blobPromises = headers.map(async (header, idx) => {
             if (!header) return Promise.resolve([]);
-            console.log(`Requesting all blobs for header at height: ${heights[idx]}; header: ${header}`);
+            console.log(`Requesting all blobs for header at height: ${heights[idx]};`);
             const blobs = await node.requestAllBlobs(header, ns, 10);
             return blobs;
           });
